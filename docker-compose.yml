@@ -1,0 +1,11 @@
+---
+services:
+  wakeonlan-api:
+    build: .
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - DEFAULT_MAC=${DEFAULT_MAC}
+    env_file:
+      - .env
+    restart: unless-stopped
