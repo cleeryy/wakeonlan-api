@@ -19,19 +19,14 @@ A **simple and lightweight REST API** built with FastAPI to remotely wake device
 1. **Clone the repository**
 
 ```
-
 git clone https://github.com/cleeryy/wakeonlan-api
 cd wakeonlan-api
-
 ```
 
 2. **Configure environment**
 
 ```
-
 cp .env.example .env
-
-
 ```
 
 Edit .env with your default MAC address
@@ -39,9 +34,7 @@ Edit .env with your default MAC address
 3. **Start the service**
 
 ```
-
 docker-compose up --build -d
-
 ```
 
 The API will be available at `http://localhost:8080`
@@ -51,26 +44,20 @@ The API will be available at `http://localhost:8080`
 1. **Install Python dependencies**
 
 ```
-
 pip install -r requirements.txt
-
 ```
 
 2. **Set environment variables**
 
 ```
-
 export DEFAULT_MAC="AA:BB:CC:DD:EE:FF"
-
 ```
 
 3. **Run the application**
 
 ```
-
 cd app
 uvicorn main:app --host 0.0.0.0 --port 8080
-
 ```
 
 ## ⚙️ Configuration
@@ -78,7 +65,6 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 Create a `.env` file in the project root:
 
 ```
-
 # Default MAC address for /wake endpoint
 
 DEFAULT_MAC=AA:BB:CC:DD:EE:FF
@@ -86,7 +72,6 @@ DEFAULT_MAC=AA:BB:CC:DD:EE:FF
 # Optional: Custom port (default: 8080)
 
 PORT=8080
-
 ```
 
 ### Environment Variables
@@ -105,12 +90,10 @@ PORT=8080
 **Response:**
 
 ```
-
 {
 "status": 200,
 "message": "Welcome to the Wake-on-LAN API!"
 }
-
 ```
 
 ### GET `/wake`
@@ -120,21 +103,17 @@ PORT=8080
 **Response (Success):**
 
 ```
-
 {
 "message": "Wake-on-LAN packet sent successfully"
 }
-
 ```
 
 **Response (Error):**
 
 ```
-
 {
 "error": "Failed to send Wake-on-LAN packet: [error details]"
 }
-
 ```
 
 ### GET `/wake/{mac_address}`
@@ -148,11 +127,9 @@ PORT=8080
 **Response (Success):**
 
 ```
-
 {
 "message": "Wake-on-LAN packet sent successfully to AA:BB:CC:DD:EE:FF device!"
 }
-
 ```
 
 ## 💡 Usage Examples
@@ -160,7 +137,6 @@ PORT=8080
 ### Using curl
 
 ```
-
 # Check API status
 
 curl http://localhost:8080/
@@ -172,13 +148,11 @@ curl http://localhost:8080/wake
 # Wake specific device
 
 curl http://localhost:8080/wake/AA:BB:CC:DD:EE:FF
-
 ```
 
 ### Using HTTPie
 
 ```
-
 # Wake default device
 
 http GET localhost:8080/wake
@@ -186,13 +160,11 @@ http GET localhost:8080/wake
 # Wake specific device
 
 http GET localhost:8080/wake/AA:BB:CC:DD:EE:FF
-
 ```
 
 ### Using Python
 
 ```
-
 import requests
 
 # Wake default device
@@ -205,7 +177,6 @@ print(response.json())
 mac_address = "AA:BB:CC:DD:EE:FF"
 response = requests.get(f"http://localhost:8080/wake/{mac_address}")
 print(response.json())
-
 ```
 
 ## 🐳 Docker
@@ -213,27 +184,22 @@ print(response.json())
 ### Build Image
 
 ```
-
 docker build -t wakeonlan-api .
-
 ```
 
 ### Run Container
 
 ```
-
 docker run -d \
  -p 8080:8080 \
  -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
  --name wakeonlan-api \
  wakeonlan-api
-
 ```
 
 ### Docker Compose
 
 ```
-
 # Start services
 
 docker-compose up -d
@@ -245,7 +211,6 @@ docker-compose logs -f
 # Stop services
 
 docker-compose down
-
 ```
 
 ## 🔒 Security Considerations
@@ -260,7 +225,6 @@ docker-compose down
 ### Project Structure
 
 ```
-
 wakeonlan-api/
 ├── app/
 │ ├── **init**.py
@@ -270,7 +234,6 @@ wakeonlan-api/
 ├── requirements.txt # Python dependencies
 ├── .env.example # Environment template
 └── LICENSE # MIT License
-
 ```
 
 ### Adding New Features
