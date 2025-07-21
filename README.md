@@ -34,7 +34,7 @@ Edit .env with your default MAC address
 3. **Start the service**
 
 ```
-docker-compose up --build -d
+docker compose up --build -d
 ```
 
 The API will be available at `http://localhost:8080`
