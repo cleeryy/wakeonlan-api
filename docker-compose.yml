@@ -2,8 +2,7 @@
 services:
   wakeonlan-api:
     build: .
-    ports:
-      - "${PORT:-8080}:8080"
+    network_mode: host
     environment:
       - DEFAULT_MAC=${DEFAULT_MAC}
     env_file:
