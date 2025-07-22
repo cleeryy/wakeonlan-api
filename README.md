@@ -1,3 +1,5 @@
+<div align="center">
+
 # 🌐 Wake-on-LAN API
 
 ### ⚡ A lightweight REST API to remotely wake devices using HTTP requests
@@ -12,9 +14,11 @@
 [![GitHub forks](https://img.shields.io/github/forks/cleeryy/wakeonlan-api?style=social)](https://github.com/cleeryy/wakeonlan-api/network/members)
 [![GitHub issues](https://img.shields.io/github/issues/cleeryy/wakeonlan-api)](https://github.com/cleeryy/wakeonlan-api/issues)
 
-**🚀 Quick Start:** `docker run -d --network host -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
+**🚀 Quick Start:** `docker run -d -p 8080:8080 -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
 
 ---
+
+</div>--
 
 A **simple and lightweight REST API** built with FastAPI to remotely wake devices using Wake-on-LAN (WoL) magic packets. Send HTTP requests to wake up computers and devices on your network.
 
