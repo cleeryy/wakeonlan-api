@@ -1,4 +1,24 @@
-# Wake-on-LAN API
+<div align="center">
+
+# 🌐 Wake-on-LAN API
+
+### ⚡ A lightweight REST API to remotely wake devices using HTTP requests
+
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
+[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.116.1-009688.svg)](https://fastapi.tiangolo.com/)
+[![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/)
+[![GitHub Container Registry](https://img.shields.io/badge/GitHub%20Container%20Registry-ghcr.io-blue?logo=github)](https://ghcr.io/cleeryy/wakeonlan-api)
+
+[![GitHub stars](https://img.shields.io/github/stars/cleeryy/wakeonlan-api?style=social)](https://github.com/cleeryy/wakeonlan-api/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/cleeryy/wakeonlan-api?style=social)](https://github.com/cleeryy/wakeonlan-api/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/cleeryy/wakeonlan-api)](https://github.com/cleeryy/wakeonlan-api/issues)
+
+**🚀 Quick Start:** `docker run -d -p 8080:8080 -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
+
+---
+
+</div>
 
 A **simple and lightweight REST API** built with FastAPI to remotely wake devices using Wake-on-LAN (WoL) magic packets. Send HTTP requests to wake up computers and devices on your network.
 
