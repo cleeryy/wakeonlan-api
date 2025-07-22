@@ -1,5 +1,3 @@
-<div align="center">
-
 # 🌐 Wake-on-LAN API
 
 ### ⚡ A lightweight REST API to remotely wake devices using HTTP requests
@@ -14,11 +12,9 @@
 [![GitHub forks](https://img.shields.io/github/forks/cleeryy/wakeonlan-api?style=social)](https://github.com/cleeryy/wakeonlan-api/network/members)
 [![GitHub issues](https://img.shields.io/github/issues/cleeryy/wakeonlan-api)](https://github.com/cleeryy/wakeonlan-api/issues)
 
-**🚀 Quick Start:** `docker run -d -p 8080:8080 -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
+**🚀 Quick Start:** `docker run -d --network host -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
 
 ---
-
-</div>
 
 A **simple and lightweight REST API** built with FastAPI to remotely wake devices using Wake-on-LAN (WoL) magic packets. Send HTTP requests to wake up computers and devices on your network.
 
@@ -40,9 +36,9 @@ A **simple and lightweight REST API** built with FastAPI to remotely wake device
 **No need to clone the repository!** Just run the pre-built image:
 
 ```
-# Pull and run the latest image
+# Pull and run the latest image with host networking
 docker run -d \
-  -p 8080:8080 \
+  --network host \
   -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
   --name wakeonlan-api \
   ghcr.io/cleeryy/wakeonlan-api:latest
@@ -52,15 +48,15 @@ The API will be available at `http://localhost:8080`
 
 **Replace `AA:BB:CC:DD:EE:FF` with your device's actual MAC address.**
 
-### Using Docker Compose
+### Using Docker Compose (Recommended)
 
 1. **Create a docker-compose.yml file**
+
 ```
 services:
   wakeonlan-api:
     image: ghcr.io/cleeryy/wakeonlan-api:latest
-    ports:
-      - "${PORT:-8080}:8080"
+    network_mode: host
     environment:
       - DEFAULT_MAC=${DEFAULT_MAC}
     env_file:
@@ -69,12 +65,13 @@ services:
 ```
 
 2. **Create a .env file**
+
 ```
 DEFAULT_MAC=AA:BB:CC:DD:EE:FF
-PORT=8080
 ```
 
 3. **Start the service**
+
 ```
 docker compose up -d
 ```
@@ -82,47 +79,48 @@ docker compose up -d
 ### Using Docker Compose (Build from Source)
 
 1. **Clone the repository**
+
 ```
 git clone https://github.com/cleeryy/wakeonlan-api
 cd wakeonlan-api
 ```
 
 2. **Configure environment**
+
 ```
 cp .env.example .env
 # Edit .env with your default MAC address
 ```
 
-3. **Start the service**
+3. **Update docker-compose.yml for host networking**
+
+```
+services:
+  wakeonlan-api:
+    build: .
+    network_mode: host
+    environment:
+      - DEFAULT_MAC=${DEFAULT_MAC}
+    env_file:
+      - .env
+    restart: unless-stopped
+```
+
+4. **Start the service**
+
 ```
 docker compose up --build -d
 ```
 
-The API will be available at `http://localhost:8080`
+## 🔌 Why Host Networking is Required
 
-### Local Installation
+**Wake-on-LAN requires host networking mode** for the following reasons:
 
-1. **Clone the repository**
-```
-git clone https://github.com/cleeryy/wakeonlan-api
-cd wakeonlan-api
-```
+- **Broadcast Packets**: WoL magic packets are broadcast packets that need to reach devices on your **physical network**
+- **Docker Isolation**: Docker's default bridge networking creates an isolated network that **prevents broadcasts** from reaching their intended targets
+- **Network Access**: Host networking gives the container **direct access** to the host's network interface, allowing magic packets to properly broadcast to all network devices
 
-2. **Install Python dependencies**
-```
-pip install -r requirements.txt
-```
-
-3. **Set environment variables**
-```
-export DEFAULT_MAC="AA:BB:CC:DD:EE:FF"
-```
-
-4. **Run the application**
-```
-cd app
-uvicorn main:app --host 0.0.0.0 --port 8080
-```
+**Without host networking**, the Wake-on-LAN packets will be trapped within Docker's internal network and won't reach the devices you want to wake up.
 
 ## ⚙️ Configuration
 
@@ -131,35 +129,36 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 | Variable      | Description                              | Default | Required |
 | ------------- | ---------------------------------------- | ------- | -------- |
 | `DEFAULT_MAC` | Default MAC address for `/wake` endpoint | None    | Yes      |
-| `PORT`        | HTTP port for the API                    | 8080    | No       |
 
 ### For Docker Run
+
 Set environment variables directly in the `docker run` command:
+
 ```
 docker run -d \
-  -p 8080:8080 \
+  --network host \
   -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
-  -e PORT=8080 \
   --name wakeonlan-api \
   ghcr.io/cleeryy/wakeonlan-api:latest
 ```
 
 ### For Docker Compose
+
 Create a `.env` file in your project directory:
+
 ```
 # Default MAC address for /wake endpoint
 DEFAULT_MAC=AA:BB:CC:DD:EE:FF
-
-# Optional: Custom port (default: 8080)
-PORT=8080
 ```
 
 ## 📡 API Endpoints
 
 ### GET `/`
+
 **Welcome endpoint** - Check if the API is running
 
 **Response:**
+
 ```
 {
   "status": 200,
@@ -168,9 +167,11 @@ PORT=8080
 ```
 
 ### GET `/wake`
+
 **Wake default device** - Send WoL packet to the configured default MAC address
 
 **Response (Success):**
+
 ```
 {
   "message": "Wake-on-LAN packet sent successfully"
@@ -178,6 +179,7 @@ PORT=8080
 ```
 
 **Response (Error):**
+
 ```
 {
   "error": "Failed to send Wake-on-LAN packet: [error details]"
@@ -185,12 +187,15 @@ PORT=8080
 ```
 
 ### GET `/wake/{mac_address}`
+
 **Wake specific device** - Send WoL packet to a specific MAC address
 
 **Parameters:**
+
 - `mac_address` (path): Target device MAC address (format: `AA:BB:CC:DD:EE:FF`)
 
 **Response (Success):**
+
 ```
 {
   "message": "Wake-on-LAN packet sent successfully to AA:BB:CC:DD:EE:FF device!"
@@ -218,7 +223,7 @@ curl http://localhost:8080/wake/AA:BB:CC:DD:EE:FF
 # Wake default device
 http GET localhost:8080/wake
 
-# Wake specific device  
+# Wake specific device
 http GET localhost:8080/wake/AA:BB:CC:DD:EE:FF
 ```
 
@@ -253,7 +258,7 @@ docker pull ghcr.io/cleeryy/wakeonlan-api:v1.0.0
 
 ```
 docker run -d \
-  -p 8080:8080 \
+  --network host \
   -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
   --name wakeonlan-api \
   ghcr.io/cleeryy/wakeonlan-api:latest
@@ -269,9 +274,9 @@ cd wakeonlan-api
 # Build image
 docker build -t wakeonlan-api .
 
-# Run built image
+# Run built image with host networking
 docker run -d \
-  -p 8080:8080 \
+  --network host \
   -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
   --name wakeonlan-api \
   wakeonlan-api
@@ -298,12 +303,40 @@ docker compose pull         # Update to latest image
 ## 🔒 Security Considerations
 
 - **Network Access**: Ensure the API is only accessible from trusted networks
-- **Firewall Rules**: Configure appropriate firewall rules for port 8080
+- **Host Networking**: Container shares host's network namespace for WoL functionality
 - **Container Security**: The application runs as a non-root user inside the container
 - **MAC Address Validation**: Consider implementing MAC address format validation for production use
-- **Image Security**: Pre-built images are automatically scanned for vulnerabilities
+- **Firewall Rules**: Configure appropriate firewall rules if needed
 
 ## 🛠️ Development
+
+### Local Installation
+
+1. **Clone the repository**
+
+```
+git clone https://github.com/cleeryy/wakeonlan-api
+cd wakeonlan-api
+```
+
+2. **Install Python dependencies**
+
+```
+pip install -r requirements.txt
+```
+
+3. **Set environment variables**
+
+```
+export DEFAULT_MAC="AA:BB:CC:DD:EE:FF"
+```
+
+4. **Run the application**
+
+```
+cd app
+uvicorn main:app --host 0.0.0.0 --port 8080
+```
 
 ### Project Structure
 
@@ -319,27 +352,11 @@ wakeonlan-api/
 └── LICENSE                # MIT License
 ```
 
-### Adding New Features
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes in `app/main.py`
-4. Test with `uvicorn main:app --reload`
-5. Submit a pull request
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 🔧 Requirements
 
 - **Python 3.12+**
 - **FastAPI** - Web framework
-- **wakeonlan** - Python Wake-on-LAN library  
+- **wakeonlan** - Python Wake-on-LAN library
 - **uvicorn** - ASGI server
 - **python-dotenv** - Environment variables support
 
@@ -348,21 +365,25 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### Common Issues
 
 **Q: Wake-on-LAN packet sent but device doesn't wake up?**
+
 - Ensure Wake-on-LAN is enabled in device BIOS/UEFI
 - Check network adapter WoL settings
 - Verify the device is connected via Ethernet (not WiFi)
 - Ensure the MAC address format is correct (`AA:BB:CC:DD:EE:FF`)
+- **Verify host networking is enabled** - this is the most common issue!
 
-**Q: API returns connection errors?**  
-- Verify the API is running on the correct port
-- Check firewall settings
-- Ensure Docker container networking is configured properly
+**Q: API returns connection errors?**
 
-**Q: Docker pull fails?**
-- Make sure you have internet connectivity
-- Try: `docker pull ghcr.io/cleeryy/wakeonlan-api:latest`
-- Check if Docker is running properly
+- Verify the API is running: `docker logs wakeonlan-api`
+- Check if the container is using host networking: `docker inspect wakeonlan-api | grep NetworkMode`
+- Ensure Docker is running properly
+
+**Q: Container can't access the network?**
+
+- Make sure you're using `--network host` or `network_mode: host`
+- Check that the host system can send WoL packets
+- Verify firewall settings on the host
 
 ---
 
-**Made with ❤️ by [Cléry A-Ferradou](https://github.com/cleeryy)**
+**Made with ❤️ by [Cléry Arque-Ferradou](https://github.com/cleeryy)**
