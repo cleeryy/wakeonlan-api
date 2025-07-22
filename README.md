@@ -14,7 +14,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/cleeryy/wakeonlan-api?style=social)](https://github.com/cleeryy/wakeonlan-api/network/members)
 [![GitHub issues](https://img.shields.io/github/issues/cleeryy/wakeonlan-api)](https://github.com/cleeryy/wakeonlan-api/issues)
 
-**🚀 Quick Start:** `docker run -d -p 8080:8080 -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
+**🚀 Quick Start:** `docker run -d --network host -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`080:8080 -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
 
 ---
 
