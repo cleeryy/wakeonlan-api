@@ -5,14 +5,18 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Copy requirements first for better Docker layer caching
-# This means if requirements don't change, Docker can reuse this layer
 COPY requirements.txt .
 
 # Copy application code
 COPY app/ ./app/
+COPY alembic/ ./alembic/
+COPY entrypoint.sh ./
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Make entrypoint script executable
+RUN chmod +x ./entrypoint.sh
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
@@ -20,6 +24,5 @@ USER appuser
 
 WORKDIR /app/app
 
-# Command to run the application :
-# uvicorn "main:app" --host $HOST_ADDR --port $HOST_PORT
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Use entrypoint to run migrations before starting
+ENTRYPOINT ["/app/entrypoint.sh"]
