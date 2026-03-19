@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🌐 Wake-on-LAN API
+# 🌐 Wake-on-LAN API v2
 
-### ⚡ A lightweight REST API to remotely wake devices using HTTP requests
+### ⚡ A full-featured REST API to remotely manage and wake devices with authentication, webhooks, MQTT, and real-time updates
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/)
@@ -16,31 +16,39 @@
 
 **🚀 Quick Start:** `docker run -d --network host -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" ghcr.io/cleeryy/wakeonlan-api`
 
+</div>
+
 ---
 
-</div>--
+## 📖 Overview
 
-A **simple and lightweight REST API** built with FastAPI to remotely wake devices using Wake-on-LAN (WoL) magic packets. Send HTTP requests to wake up computers and devices on your network.
+Wake-on-LAN API v2 is a production-ready, feature-rich API for remotely waking devices on your network. It goes beyond simple magic packet sending to provide a complete device management platform with security, observability, and integration capabilities.
 
-## ✨ Features
+### Key Features
 
-- **RESTful API** with FastAPI framework
-- **Wake devices by MAC address** via HTTP requests
-- **Default MAC configuration** for quick access
-- **Pre-built Docker images** available on GitHub Container Registry
-- **Docker support** with multi-stage builds
-- **Security-focused** with non-root container user
-- **Lightweight** Python 3.12-slim base image
-- **Environment-based configuration**
+- 🔐 **API Key Authentication** – Secure access with hashed API keys, key rotation, and deactivation
+- ⚡ **Rate Limiting** – Per-endpoint and per-API-key limits to prevent abuse
+- 📋 **Device Registry** – Store and manage devices with names, MAC addresses, IPs, and custom ports
+- 🔍 **Device Status Checking** – Ping or ARP-based online detection with caching
+- 📜 **Wake History** – Comprehensive audit log of all wake attempts with timestamps and outcomes
+- 🔗 **Webhook Notifications** – Configurable outgoing webhooks with HMAC signatures and exponential backoff retry
+- 📡 **MQTT Integration** – Publish wake events to an MQTT broker for home automation (Home Assistant, etc.)
+- ⚡ **Server-Sent Events (SSE)** – Real-time event streaming for live dashboards and notifications
+- 🏗️ **Async Architecture** – Built on FastAPI with async SQLAlchemy for high performance
+- 📦 **Docker Ready** – Pre-built images, host networking support, and entrypoint migrations
+- 🧪 **Tested** – Comprehensive test suite with CI/CD via GitHub Actions
+
+---
 
 ## 🚀 Quick Start
 
-### Using Pre-built Docker Image (Easiest)
+### Using Docker (Easiest)
 
-**No need to clone the repository!** Just run the pre-built image:
+```bash
+# Pull the latest image
+docker pull ghcr.io/cleeryy/wakeonlan-api:latest
 
-```
-# Pull and run the latest image with host networking
+# Run with host networking and a default MAC
 docker run -d \
   --network host \
   -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
@@ -48,346 +56,641 @@ docker run -d \
   ghcr.io/cleeryy/wakeonlan-api:latest
 ```
 
-The API will be available at `http://localhost:8080`
+The API will be available at `http://localhost:8080`.
 
-**Replace `AA:BB:CC:DD:EE:FF` with your device's actual MAC address.**
+### Using Docker Compose
 
-### Using Docker Compose (Recommended)
+1. **Create `docker-compose.yml`**
 
-1. **Create a docker-compose.yml file**
-
-```
+```yaml
 services:
   wakeonlan-api:
     image: ghcr.io/cleeryy/wakeonlan-api:latest
     network_mode: host
     environment:
       - DEFAULT_MAC=${DEFAULT_MAC}
+      - DB_URL=sqlite+aiosqlite:///./wakeonlan.db
+      # Optional: enable MQTT
+      # - MQTT_BROKER=localhost
+      # - FEATURE_MQTT_ENABLED=true
     env_file:
       - .env
     restart: unless-stopped
 ```
 
-2. **Create a .env file**
+2. **Create `.env` file**
 
-```
+```bash
 DEFAULT_MAC=AA:BB:CC:DD:EE:FF
+# Optional: generate an initial API key
+API_KEY_INITIAL=$(openssl rand -hex 16)
 ```
 
 3. **Start the service**
 
-```
+```bash
 docker compose up -d
 ```
 
-### Using Docker Compose (Build from Source)
+### Local Development
 
-1. **Clone the repository**
-
-```
+```bash
+# Clone repository
 git clone https://github.com/cleeryy/wakeonlan-api
 cd wakeonlan-api
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables (or copy .env.example to .env)
+export DEFAULT_MAC="AA:BB:CC:DD:EE:FF"
+export DB_URL="sqlite+aiosqlite:///./wakeonlan.db"
+
+# Run migrations (optional, tables created automatically in dev)
+alembic upgrade head
+
+# Start the server
+cd app
+uvicorn main:app --reload --host 0.0.0.0 --port 8080
 ```
 
-2. **Configure environment**
+---
 
-```
-cp .env.example .env
-# Edit .env with your default MAC address
-```
+## 🔒 Why Host Networking?
 
-3. **Update docker-compose.yml for host networking**
+Wake-on-LAN magic packets are **broadcast packets** that must reach all devices on the physical network. Docker's default bridge network isolates containers and blocks broadcasts. **Host networking** (`--network host`) gives the container direct access to the host's network interface, allowing magic packets to properly broadcast.
 
-```
-services:
-  wakeonlan-api:
-    build: .
-    network_mode: host
-    environment:
-      - DEFAULT_MAC=${DEFAULT_MAC}
-    env_file:
-      - .env
-    restart: unless-stopped
-```
+Without host networking, WoL packets will be trapped inside Docker's internal network and won't reach your devices.
 
-4. **Start the service**
-
-```
-docker compose up --build -d
-```
-
-## 🔌 Why Host Networking is Required
-
-**Wake-on-LAN requires host networking mode** for the following reasons:
-
-- **Broadcast Packets**: WoL magic packets are broadcast packets that need to reach devices on your **physical network**
-- **Docker Isolation**: Docker's default bridge networking creates an isolated network that **prevents broadcasts** from reaching their intended targets
-- **Network Access**: Host networking gives the container **direct access** to the host's network interface, allowing magic packets to properly broadcast to all network devices
-
-**Without host networking**, the Wake-on-LAN packets will be trapped within Docker's internal network and won't reach the devices you want to wake up.
+---
 
 ## ⚙️ Configuration
 
-### Environment Variables
+All configuration is done via environment variables. Copy `.env.example` to `.env` and customize.
 
-| Variable      | Description                              | Default | Required |
-| ------------- | ---------------------------------------- | ------- | -------- |
-| `DEFAULT_MAC` | Default MAC address for `/wake` endpoint | None    | Yes      |
+### Core Settings
 
-### For Docker Run
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `DEFAULT_MAC` | Default MAC address for `/wake` endpoint | None | No (but recommended) |
+| `DB_URL` | Database connection URL | `sqlite+aiosqlite:///./wakeonlan.db` | No |
+| `API_KEY_INITIAL` | Initial API key to auto-create on first startup | None | No |
 
-Set environment variables directly in the `docker run` command:
+### Authentication & Rate Limiting
 
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RATE_LIMIT_DEFAULT` | Default rate limit (e.g., `60/minute`) | `60/minute` |
+| `RATE_LIMIT_WAKE` | Rate limit for wake endpoints | `10/minute` |
+| `RATE_LIMIT_HEALTH` | Rate limit for health check | `60/minute` |
+| `RATE_LIMIT_PER_KEY` | Apply rate limiting per API key when available | `true` |
+
+### Webhooks
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WEBHOOK_MAX_RETRIES` | Maximum retry attempts for failed webhooks | `5` |
+| `WEBHOOK_RETRY_BASE_DELAY` | Base delay for exponential backoff (seconds) | `1.0` |
+| `WEBHOOK_RETRY_MAX_DELAY` | Maximum delay between retries (seconds) | `60.0` |
+| `WEBHOOK_TIMEOUT` | HTTP request timeout (seconds) | `10.0` |
+| `FEATURE_WEBHOOKS_ENABLED` | Enable/disable webhook feature | `true` |
+
+### MQTT (Optional)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MQTT_BROKER` | MQTT broker host (e.g., `localhost`) | None |
+| `MQTT_PORT` | MQTT broker port | `1883` |
+| `MQTT_USER` | MQTT username (optional) | None |
+| `MQTT_PASSWORD` | MQTT password (optional) | None |
+| `MQTT_TOPIC_PREFIX` | MQTT topic prefix (default: `wol`) | `wol` |
+| `MQTT_KEEPALIVE` | MQTT keepalive interval (seconds) | `60` |
+| `FEATURE_MQTT_ENABLED` | Enable MQTT integration | `false` |
+
+### Device Status Checking
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `STATUS_PING_TIMEOUT` | ICMP ping timeout (seconds) | `1.0` |
+| `STATUS_PING_COUNT` | Number of ping attempts | `1` |
+| `STATUS_ARP_ENABLED` | Enable ARP cache fallback (Linux only) | `true` |
+| `STATUS_CACHE_TTL` | Cache TTL for status checks (seconds) | `5` |
+
+### Server-Sent Events (SSE)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SSE_HEARTBEAT_INTERVAL` | Heartbeat interval (seconds) | `15` |
+| `SSE_MAX_QUEUE_SIZE` | Max events queued per client | `1000` |
+| `FEATURE_SSE_ENABLED` | Enable SSE endpoint | `true` |
+
+### Logging
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` |
+| `LOG_FORMAT` | Log format (`json` or `console`) | `json` |
+| `LOG_DEST` | Log destination (`stdout` or `file`) | `stdout` |
+| `LOG_FILE` | Log file path if `LOG_DEST=file` | None |
+
+---
+
+## 🔑 Authentication
+
+All protected endpoints require an API key passed in the `X-API-Key` header.
+
+### Creating an API Key
+
+Use the `/auth/keys` endpoint (requires an existing API key) or set `API_KEY_INITIAL` to auto-create an initial admin key on first startup.
+
+```bash
+# Create a new API key (using existing key)
+curl -X POST "http://localhost:8080/auth/keys" \
+  -H "X-API-Key: YOUR_EXISTING_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_name": "My Laptop", "is_active": true}'
 ```
-docker run -d \
-  --network host \
-  -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
-  --name wakeonlan-api \
-  ghcr.io/cleeryy/wakeonlan-api:latest
-```
 
-### For Docker Compose
+Response:
 
-Create a `.env` file in your project directory:
-
-```
-# Default MAC address for /wake endpoint
-DEFAULT_MAC=AA:BB:CC:DD:EE:FF
-```
-
-## 📡 API Endpoints
-
-### GET `/`
-
-**Welcome endpoint** - Check if the API is running
-
-**Response:**
-
-```
+```json
 {
-  "status": 200,
-  "message": "Welcome to the Wake-on-LAN API!"
+  "api_key": "a1b2c3d4e5f6...",  // Plaintext key - store it securely!
+  "id": 1,
+  "key_name": "My Laptop",
+  "is_active": true,
+  "created_at": "2026-03-19T15:00:00Z",
+  "last_used_at": null
 }
 ```
 
-### GET `/wake`
+**Important:** The plaintext API key is only shown once upon creation. Store it securely; you cannot retrieve it later.
 
-**Wake default device** - Send WoL packet to the configured default MAC address
+### Managing API Keys
+
+- **List keys:** `GET /auth/keys`
+- **Deactivate:** `POST /auth/keys/{id}/deactivate`
+- **Reactivate:** `POST /auth/keys/{id}/reactivate`
+
+---
+
+## 📡 API Reference
+
+### Public Endpoints (No Auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Welcome message |
+| `GET` | `/health` | Health check (returns `{"status":"healthy"}`) |
+
+### Device Management (Auth Required)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/devices` | Create a new device |
+| `GET` | `/devices` | List all devices (query `?enabled=true|false`) |
+| `GET` | `/devices/{id}` | Get device details |
+| `PUT` | `/devices/{id}` | Update a device |
+| `DELETE` | `/devices/{id}` | Delete a device |
+| `GET` | `/devices/{id}/status` | Check if device is online (ping/ARP) |
+
+**Device Schema (Create/Update):**
+
+```json
+{
+  "name": "My PC",
+  "mac_address": "AA:BB:CC:DD:EE:FF",
+  "ip_address": "192.168.1.100",
+  "port": 9,
+  "enabled": true
+}
+```
+
+### Wake Endpoints (Auth Required)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/wake` | Wake the default MAC (from `DEFAULT_MAC` env) |
+| `GET` | `/wake/{mac_address}` | Wake a specific device by MAC |
 
 **Response (Success):**
 
-```
+```json
 {
-  "message": "Wake-on-LAN packet sent successfully"
+  "message": "Wake packet sent to AA:BB:CC:DD:EE:FF"
 }
 ```
 
-**Response (Error):**
+**Response (Error):** `500` with `{"detail": "Failed to send WoL packet: ..."}`
 
-```
+### Webhook Management (Auth Required)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/webhooks` | Create webhook configuration |
+| `GET` | `/webhooks` | List all webhooks |
+| `GET` | `/webhooks/{id}` | Get webhook details |
+| `PUT` | `/webhooks/{id}` | Update webhook |
+| `DELETE` | `/webhooks/{id}` | Delete webhook |
+
+**Webhook Schema (Create/Update):**
+
+```json
 {
-  "error": "Failed to send Wake-on-LAN packet: [error details]"
+  "name": "Discord Notification",
+  "url": "https://discord.com/api/webhooks/...",
+  "event_types": ["wol_sent", "wol_success", "wol_failure"],
+  "headers": {
+    "Authorization": "Bearer token"
+  },
+  "secret": "hmac-secret-key",  // optional, for signature
+  "is_active": true,
+  "max_retries": 5,
+  "retry_base_delay": 1.0,
+  "retry_max_delay": 60.0,
+  "timeout": 10.0
 }
 ```
 
-### GET `/wake/{mac_address}`
+**Event Types:** `wol_sent`, `wol_success`, `wol_failure`, `device_online` (future)
 
-**Wake specific device** - Send WoL packet to a specific MAC address
+**Webhook Payload Example:**
 
-**Parameters:**
-
-- `mac_address` (path): Target device MAC address (format: `AA:BB:CC:DD:EE:FF`)
-
-**Response (Success):**
-
-```
+```json
 {
-  "message": "Wake-on-LAN packet sent successfully to AA:BB:CC:DD:EE:FF device!"
+  "event_type": "wol_sent",
+  "payload": {
+    "mac_address": "AA:BB:CC:DD:EE:FF",
+    "device_name": "My PC",
+    "triggered_by": "Admin API Key"
+  },
+  "timestamp": "2026-03-19T15:00:00Z"
 }
 ```
 
-## 💡 Usage Examples
+If a `secret` is configured, the request includes an `X-Webhook-Signature` header with HMAC-SHA256 of the JSON body.
 
-### Using curl
+### Server-Sent Events (SSE) (Auth Required)
 
-```
-# Check API status
-curl http://localhost:8080/
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/events` | Stream real-time events |
 
-# Wake default device
-curl http://localhost:8080/wake
+**Query Parameters:**
+- `event_types` (optional): Comma-separated list of event types to filter (e.g., `wake,device_status`)
 
-# Wake specific device
-curl http://localhost:8080/wake/AA:BB:CC:DD:EE:FF
-```
-
-### Using HTTPie
+**Response:** `text/event-stream` with messages in SSE format:
 
 ```
-# Wake default device
-http GET localhost:8080/wake
-
-# Wake specific device
-http GET localhost:8080/wake/AA:BB:CC:DD:EE:FF
+data: {"event":"wake","data":{"mac_address":"AA:BB:...","success":true,...},"timestamp":"..."}
 ```
 
-### Using Python
+Heartbeat comments are sent periodically to keep connections alive.
 
-```
-import requests
+---
 
-# Wake default device
-response = requests.get("http://localhost:8080/wake")
-print(response.json())
+## 🔌 Webhooks
 
-# Wake specific device
-mac_address = "AA:BB:CC:DD:EE:FF"
-response = requests.get(f"http://localhost:8080/wake/{mac_address}")
-print(response.json())
-```
+Webhooks allow you to integrate WoL events with external systems like Discord, Slack, Home Assistant, or custom monitoring.
 
-## 🐳 Docker
+### Setup
 
-### Pull Pre-built Image
+1. Create a webhook configuration via API or admin UI (future)
+2. Provide the target URL, select event types, optionally set a secret for HMAC signing
+3. When a wake event occurs, a delivery record is created and queued for retry
+4. The background worker attempts delivery with exponential backoff (1s, 5s, 30s, 5m, 30m) up to `max_retries`
+5. Delivery status is tracked in `webhook_deliveries` table
 
-```
-# Pull the latest image
-docker pull ghcr.io/cleeryy/wakeonlan-api:latest
+### Retry Logic
 
-# Or pull a specific version
-docker pull ghcr.io/cleeryy/wakeonlan-api:v1.0.0
-```
+- Failed deliveries are retried with exponential backoff
+- After `max_retries` attempts, the delivery is marked as failure
+- Circuit breaker pattern can be implemented per-webhook (future)
 
-### Run Pre-built Container
+---
 
-```
-docker run -d \
-  --network host \
-  -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
-  --name wakeonlan-api \
-  ghcr.io/cleeryy/wakeonlan-api:latest
-```
+## 📡 MQTT Integration
 
-### Build from Source
+Publish wake events to an MQTT broker for integration with home automation platforms like Home Assistant.
 
-```
-# Clone repository first
-git clone https://github.com/cleeryy/wakeonlan-api
-cd wakeonlan-api
+### Configuration
 
-# Build image
-docker build -t wakeonlan-api .
+Set the following environment variables:
 
-# Run built image with host networking
-docker run -d \
-  --network host \
-  -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" \
-  --name wakeonlan-api \
-  wakeonlan-api
+```bash
+MQTT_BROKER=localhost
+MQTT_PORT=1883
+MQTT_TOPIC_PREFIX=wol
+FEATURE_MQTT_ENABLED=true
 ```
 
-### Docker Management Commands
+If your broker requires authentication, set `MQTT_USER` and `MQTT_PASSWORD`.
 
-```
-# View logs
-docker logs wakeonlan-api
+### Topics
 
-# Stop container
-docker stop wakeonlan-api
+Events are published to topics under the configured prefix:
 
-# Remove container
-docker rm wakeonlan-api
+- `wol/device/{device_name}/status` – Device status updates (online/offline)
+- `wol/events/wake` – Wake events
 
-# Using Docker Compose
-docker compose logs -f        # View logs
-docker compose down          # Stop services
-docker compose pull         # Update to latest image
-```
+Payloads are JSON with fields like `event_type`, `payload`, `timestamp`.
 
-## 🔒 Security Considerations
+Example MQTT message:
 
-- **Network Access**: Ensure the API is only accessible from trusted networks
-- **Host Networking**: Container shares host's network namespace for WoL functionality
-- **Container Security**: The application runs as a non-root user inside the container
-- **MAC Address Validation**: Consider implementing MAC address format validation for production use
-- **Firewall Rules**: Configure appropriate firewall rules if needed
-
-## 🛠️ Development
-
-### Local Installation
-
-1. **Clone the repository**
-
-```
-git clone https://github.com/cleeryy/wakeonlan-api
-cd wakeonlan-api
+```json
+{
+  "event_type": "wake",
+  "payload": {
+    "mac_address": "AA:BB:CC:DD:EE:FF",
+    "device_name": "Gaming PC",
+    "triggered_by": "Admin API Key"
+  },
+  "timestamp": "2026-03-19T15:00:00Z"
+}
 ```
 
-2. **Install Python dependencies**
+---
 
-```
-pip install -r requirements.txt
+## ⚡ Server-Sent Events (SSE)
+
+Connect to `/events` to receive real-time updates in your browser or application.
+
+### Usage
+
+```javascript
+const eventSource = new EventSource('http://localhost:8080/events?event_types=wake,device_status', {
+  headers: { 'X-API-Key': 'your-api-key' }
+});
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Event:', data.event, data.data);
+};
+
+eventSource.onerror = (err) => {
+  console.error('SSE error:', err);
+};
 ```
 
-3. **Set environment variables**
+Events are broadcast when:
+- A wake packet is sent (success or failure)
+- Device status changes (future)
+- Webhook deliveries occur (future)
 
-```
-export DEFAULT_MAC="AA:BB:CC:DD:EE:FF"
-```
+---
 
-4. **Run the application**
+## 🏗️ Architecture
 
-```
-cd app
-uvicorn main:app --host 0.0.0.0 --port 8080
-```
+### Technology Stack
+
+- **FastAPI** – Modern, fast web framework with automatic OpenAPI docs
+- **SQLAlchemy 2.0** – Async ORM with PostgreSQL/MySQL/SQLite support
+- **Alembic** – Database migrations
+- **slowapi** – Rate limiting with in-memory store (Redis ready)
+- **structlog** – Structured JSON logging
+- **httpx** – Async HTTP client for webhooks
+- **aiomqtt** – Async MQTT client
+- **ping3** – ICMP ping for device status
+- **passlib[bcrypt]** – API key hashing
+- **wakeonlan** – Magic packet sending
 
 ### Project Structure
 
 ```
 wakeonlan-api/
 ├── app/
-│   ├── __init__.py
-│   └── main.py              # FastAPI application
-├── docker-compose.yml       # Docker Compose configuration
-├── Dockerfile              # Docker image definition
-├── requirements.txt        # Python dependencies
-├── .env.example           # Environment template
-└── LICENSE                # MIT License
+│   ├── main.py                 # FastAPI app with all routes
+│   ├── core/
+│   │   └── config.py           # Pydantic settings
+│   ├── db/
+│   │   ├── database.py         # Async engine & session
+│   │   └── session.py          # Re-exports
+│   ├── models/                 # SQLAlchemy ORM models
+│   │   ├── device.py
+│   │   ├── api_key.py
+│   │   ├── wake_history.py
+│   │   ├── webhook_config.py
+│   │   └── webhook_delivery.py
+│   ├── schemas/                # Pydantic request/response schemas
+│   ├── crud/                   # CRUD operations for all models
+│   ├── auth/
+│   │   └── api_key.py         # API key authentication dependency
+│   ├── rate_limit/
+│   │   └── __init__.py        # slowapi configuration
+│   ├── status/
+│   │   └── checker.py         # Device status (ping/ARP)
+│   ├── webhooks/
+│   │   ├── sender.py          # Webhook HTTP sender with HMAC
+│   │   └── worker.py          # Retry background task
+│   ├── mqtt/
+│   │   └── client.py          # MQTT client wrapper
+│   ├── events/
+│   │   └── broadcast.py       # SSE broadcast manager
+│   ├── logging_config.py      # Structured logging setup
+│   └── middleware.py          # Request logging middleware
+├── alembic/
+│   ├── versions/
+│   │   └── 20260319_initial.py
+│   └── env.py
+├── tests/
+│   ├── conftest.py             # Pytest fixtures
+│   ├── test_auth.py
+│   ├── test_rate_limit.py
+│   ├── test_devices.py
+│   ├── test_status.py
+│   ├── test_webhooks.py
+│   ├── test_sse.py
+│   └── test_mqtt.py
+├── docker-compose.yml
+├── Dockerfile
+├── entrypoint.sh
+├── requirements.txt
+├── pytest.ini
+└── .env.example
 ```
-
-## 🔧 Requirements
-
-- **Python 3.12+**
-- **FastAPI** - Web framework
-- **wakeonlan** - Python Wake-on-LAN library
-- **uvicorn** - ASGI server
-- **python-dotenv** - Environment variables support
-
-## ❓ Troubleshooting
-
-### Common Issues
-
-**Q: Wake-on-LAN packet sent but device doesn't wake up?**
-
-- Ensure Wake-on-LAN is enabled in device BIOS/UEFI
-- Check network adapter WoL settings
-- Verify the device is connected via Ethernet (not WiFi)
-- Ensure the MAC address format is correct (`AA:BB:CC:DD:EE:FF`)
-- **Verify host networking is enabled** - this is the most common issue!
-
-**Q: API returns connection errors?**
-
-- Verify the API is running: `docker logs wakeonlan-api`
-- Check if the container is using host networking: `docker inspect wakeonlan-api | grep NetworkMode`
-- Ensure Docker is running properly
-
-**Q: Container can't access the network?**
-
-- Make sure you're using `--network host` or `network_mode: host`
-- Check that the host system can send WoL packets
-- Verify firewall settings on the host
 
 ---
 
-**Made with ❤️ by [Cléry Arque-Ferradou](https://github.com/cleeryy)**
+## 🧪 Testing
+
+The project includes a comprehensive test suite using `pytest` and `pytest-asyncio`.
+
+### Running Tests
+
+```bash
+# Install dev dependencies (already in requirements.txt)
+pip install -r requirements.txt
+
+# Run all tests with coverage
+pytest
+
+# Run specific test file
+pytest tests/test_auth.py
+
+# Run with verbose output
+pytest -v
+
+# Generate coverage report
+pytest --cov=app --cov-report=html
+```
+
+### CI/CD
+
+GitHub Actions workflow (`.github/workflows/test.yml`) runs on every push and pull request:
+
+- Syntax check (`python -m compileall`)
+- Pytest with coverage
+- Uploads coverage and test results as artifacts
+
+---
+
+## 🐳 Docker Deployment
+
+### Build from Source
+
+```bash
+docker build -t wakeonlan-api .
+docker run -d --network host -e DEFAULT_MAC="AA:BB:CC:DD:EE:FF" wakeonlan-api
+```
+
+### Using Docker Compose
+
+```bash
+docker compose up -d
+```
+
+### Entrypoint Script
+
+The `entrypoint.sh` script performs the following on container start:
+
+1. Wait for database to be ready (PostgreSQL only)
+2. Run Alembic migrations (`alembic upgrade head`)
+3. Start Uvicorn server
+
+This ensures the database schema is always up-to-date.
+
+---
+
+## 📊 Database Migrations
+
+Alembic is configured for async migrations. The initial migration (`alembic/versions/20260319_initial.py`) creates all tables:
+
+- `devices`
+- `api_keys`
+- `wake_history`
+- `webhook_configs`
+- `webhook_deliveries`
+
+### Running Migrations Manually
+
+```bash
+# Upgrade to latest
+alembic upgrade head
+
+# Generate a new migration (after model changes)
+alembic revision --autogenerate -m "description"
+```
+
+---
+
+## 🛡️ Security Considerations
+
+- **API Keys** are hashed with bcrypt; plaintext keys are only shown once upon creation
+- **Rate Limiting** prevents brute-force and DoS attacks
+- **HMAC Signatures** for webhooks ensure payload integrity
+- **Structured Logging** includes request IDs for audit trails
+- **Non-root Container User** reduces attack surface
+- **Host Networking** requirement limits exposure; do not expose directly to the internet without additional firewall/VPN
+
+**Never expose this API directly to the public internet** without:
+- VPN or reverse proxy with additional authentication
+- Strict firewall rules
+- TLS encryption (use a reverse proxy like Nginx/Traefik)
+
+---
+
+## 🧩 Integration Examples
+
+### Home Assistant (MQTT)
+
+```yaml
+# configuration.yaml
+mqtt:
+  sensor:
+    - name: "PC Status"
+      state_topic: "wol/device/gaming_pc/status"
+      value_template: "{{ value_json.online }}"
+```
+
+### Discord Webhook
+
+Create a webhook pointing to your Discord webhook URL, subscribe to `wol_sent` and `wol_success` events.
+
+### Custom Dashboard (SSE)
+
+```javascript
+// Connect to SSE stream
+const source = new EventSource('http://localhost:8080/events?event_types=wake', {
+  headers: { 'X-API-Key': 'your-key' }
+});
+
+source.onmessage = (e) => {
+  const event = JSON.parse(e.data);
+  if (event.event === 'wake') {
+    console.log(`${event.data.device_name} woke!`);
+  }
+};
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### WoL packets not waking devices
+
+- Ensure Wake-on-LAN is enabled in BIOS/UEFI and network adapter settings
+- Verify the device is connected via Ethernet (WiFi often doesn't support WoL)
+- Confirm the MAC address is correct
+- **Verify host networking is enabled** (`--network host`)
+- Check that the host firewall allows UDP broadcast on port 9 (or custom port)
+
+### API returns 401
+
+- Ensure you're sending `X-API-Key` header with a valid, active API key
+- Check that the key hasn't been deactivated
+
+### Rate limit exceeded
+
+- Reduce request frequency or request a higher limit
+- Use multiple API keys (each has its own limit if `RATE_LIMIT_PER_KEY=true`)
+
+### MQTT connection fails
+
+- Verify `MQTT_BROKER` is reachable from the container
+- Check credentials if required
+- Ensure `FEATURE_MQTT_ENABLED=true`
+
+### Webhooks not delivering
+
+- Check webhook URL is reachable and returns `2xx`
+- Verify the webhook is active
+- Look at `webhook_deliveries` table for error messages
+- Ensure outbound HTTP is allowed from the container
+
+---
+
+## 📝 License
+
+MIT License – see [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+Built with ❤️ by [Cléry Arque-Ferradou](https://github.com/cleeryy)
+
+Inspired by the need for a secure, production-ready WoL API for home labs and small networks.
