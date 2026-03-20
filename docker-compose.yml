@@ -3,6 +3,8 @@ services:
   wakeonlan-api:
     build: .
     network_mode: host
+    volumes:
+      - ./wakeonlan.db:/app/wakeonlan.db
     environment:
       - DEFAULT_MAC=${DEFAULT_MAC}
     env_file:
