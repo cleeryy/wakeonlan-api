@@ -20,6 +20,10 @@ USER appuser
 
 WORKDIR /app/app
 
+# Health check to ensure service is responding
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+
 # Command to run the application :
 # uvicorn "main:app" --host $HOST_ADDR --port $HOST_PORT
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

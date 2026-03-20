@@ -94,6 +94,16 @@ async def root():
     return {"status": 200, "message": "Welcome to the Wake-on-LAN API!"}
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and Docker HEALTHCHECK."""
+    return {
+        "status": "healthy",
+        "service": "wakeonlan-api",
+        "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+    }
+
+
 @app.get("/wake")
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):

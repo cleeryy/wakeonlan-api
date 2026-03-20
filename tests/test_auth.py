@@ -27,6 +27,15 @@ class TestRootEndpoint:
             "message": "Welcome to the Wake-on-LAN API!"
         }
 
+    def test_health_check(self):
+        """Health check endpoint should return healthy status."""
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "wakeonlan-api"
+        assert "timestamp" in data
+
 
 class TestWakeEndpointAuth:
     def test_wake_without_api_key(self):
