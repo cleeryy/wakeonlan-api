@@ -1,7 +1,6 @@
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,6 +16,14 @@ os.environ.setdefault("API_KEY", "test-key")
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_send_magic_packet(monkeypatch):
+    """Mock send_magic_packet to avoid actual network calls during tests."""
+    def mock_send(*args, **kwargs):
+        pass
+    monkeypatch.setattr('app.main.send_magic_packet', mock_send)
 
 
 @pytest.fixture(autouse=True)

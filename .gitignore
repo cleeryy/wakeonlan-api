@@ -208,3 +208,6 @@ __marimo__/
 
 # MAC
 .DS_Store
+
+# Device registry data file
+devices.json
