@@ -16,11 +16,15 @@ API_KEY = os.getenv("API_KEY", "").strip()
 if not DEFAULT_MAC:
     raise RuntimeError("DEFAULT_MAC environment variable is required")
 
-MAC_ADDRESS_REGEX = re.compile(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$')
-
-
 def validate_mac_address(mac: str) -> bool:
-    return bool(MAC_ADDRESS_REGEX.fullmatch(mac.strip()))
+    mac = mac.strip()
+    # Check colon-separated format (XX:XX:XX:XX:XX:XX)
+    if re.fullmatch(r'([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}', mac):
+        return True
+    # Check hyphen-separated format (XX-XX-XX-XX-XX-XX)
+    if re.fullmatch(r'([0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2}', mac):
+        return True
+    return False
 
 
 if not validate_mac_address(DEFAULT_MAC):
@@ -39,7 +43,7 @@ def get_api_keys() -> List[str]:
 
 
 async def verify_api_key(
-    x_api_key: str = Header(..., alias="X-API-Key")
+    x_api_key: Union[str, None] = Header(None, alias="X-API-Key")
 ) -> str:
     """
     Dependency that verifies the provided API key.
@@ -50,9 +54,9 @@ async def verify_api_key(
     
     # If API_KEY is not configured, allow all (backward compatibility)
     if not allowed_keys:
-        return x_api_key
+        return x_api_key or ""
     
-    if x_api_key not in allowed_keys:
+    if x_api_key is None or x_api_key not in allowed_keys:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Invalid or missing API key"}
