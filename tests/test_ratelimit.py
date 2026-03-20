@@ -12,8 +12,7 @@ sys.path.insert(0, str(project_root))
 # Set required env vars
 os.environ.setdefault("DEFAULT_MAC", "AA:BB:CC:DD:EE:FF")
 os.environ.setdefault("API_KEY", "test-key")
-os.environ.setdefault("RATE_LIMIT_REQUESTS", "3")  # Use a lower limit for testing
-os.environ.setdefault("RATE_LIMIT_WINDOW_SECONDS", "60")
+# Use default RATE_LIMIT_REQUESTS=5 from app configuration
 
 from app.main import app
 
@@ -21,8 +20,10 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def reset_limiter_before_each_test():
-    """Reset rate limiter before each test to ensure clean state."""
+def reset_limiter_before_and_after():
+    """Reset rate limiter before and after each test to ensure clean state."""
+    app.state.limiter.reset()
+    yield
     app.state.limiter.reset()
 
 
@@ -31,7 +32,8 @@ class TestRateLimiting:
 
     def test_rate_limit_exceeded_returns_429(self):
         """Should return 429 when rate limit is exceeded."""
-        rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
+        # Use default rate limit of 5
+        rate_limit = 5
         
         # Make requests up to the limit (should all succeed)
         for i in range(rate_limit):
@@ -45,7 +47,7 @@ class TestRateLimiting:
 
     def test_rate_limit_message_format(self):
         """Should return proper error message with rate limit details."""
-        rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
+        rate_limit = 5
         
         # Exceed rate limit
         for _ in range(rate_limit + 1):
@@ -59,7 +61,7 @@ class TestRateLimiting:
 
     def test_rate_limit_applies_to_mac_endpoint(self):
         """Should rate limit /wake/{mac} endpoint as well."""
-        rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
+        rate_limit = 5
         
         # Exceed limit on specific MAC endpoint
         for i in range(rate_limit):
@@ -71,7 +73,7 @@ class TestRateLimiting:
 
     def test_rate_limit_by_ip(self):
         """Should rate limit based on client IP address."""
-        rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
+        rate_limit = 5
         
         # All requests from same client (test client) should be tracked together
         for i in range(rate_limit):
@@ -83,7 +85,7 @@ class TestRateLimiting:
 
     def test_different_api_keys_same_ip_shared_limit(self):
         """Should share rate limit across API keys from same IP."""
-        rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
+        rate_limit = 5
         
         # Set multiple valid keys
         import app.main as main_module
