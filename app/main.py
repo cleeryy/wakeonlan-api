@@ -26,6 +26,9 @@ RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "5"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_STRING = f"{RATE_LIMIT_REQUESTS}/{RATE_LIMIT_WINDOW_SECONDS}s"
 
+# Broadcast IP configuration (optional, defaults to wakeonlan library default)
+BROADCAST_IP = os.getenv("BROADCAST_IP", "")
+
 # Initialize limiter with remote address as key
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -184,7 +187,10 @@ async def wake_device_by_name(request: Request, name: str):
         )
     
     try:
-        send_magic_packet(mac)
+        if BROADCAST_IP:
+            send_magic_packet(mac, ip_address=BROADCAST_IP)
+        else:
+            send_magic_packet(mac)
         return {
             "message": f"Wake-on-LAN packet sent successfully to {name} ({mac})!"
         }
@@ -199,7 +205,10 @@ async def wake_device_by_name(request: Request, name: str):
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
     try:
-        send_magic_packet(DEFAULT_MAC)
+        if BROADCAST_IP:
+            send_magic_packet(DEFAULT_MAC, ip_address=BROADCAST_IP)
+        else:
+            send_magic_packet(DEFAULT_MAC)
         return {"message": "Wake-on-LAN packet sent successfully"}
     except Exception as e:
         raise HTTPException(
@@ -223,7 +232,10 @@ async def read_wake(
             detail={"error": f"Invalid MAC address format: '{wake_addr}'. Must be XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX"}
         )
     try:
-        send_magic_packet(wake_addr)
+        if BROADCAST_IP:
+            send_magic_packet(wake_addr, ip_address=BROADCAST_IP)
+        else:
+            send_magic_packet(wake_addr)
         return {
             "message": f"Wake-on-LAN packet sent successfully to {wake_addr} device!"
         }
