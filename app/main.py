@@ -3,12 +3,37 @@ import re
 from typing import Union, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Header, status
+from fastapi import FastAPI, Depends, HTTPException, Header, status, Request
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.responses import JSONResponse
 from wakeonlan import send_magic_packet
 
 load_dotenv()
 
 app = FastAPI()
+
+# Rate limiting configuration
+RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "5"))
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_STRING = f"{RATE_LIMIT_REQUESTS}/{RATE_LIMIT_WINDOW_SECONDS}s"
+
+# Initialize limiter with remote address as key
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Add SlowAPI middleware
+app.add_middleware(SlowAPIMiddleware)
+
+# Custom rate limit exceeded handler
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"error": f"Rate limit exceeded. Maximum {RATE_LIMIT_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS} seconds."}
+    )
 
 DEFAULT_MAC = os.getenv("DEFAULT_MAC") or ""
 API_KEY = os.getenv("API_KEY", "").strip()
@@ -70,7 +95,8 @@ async def root():
 
 
 @app.get("/wake")
-async def wake_pc(api_key: str = Depends(verify_api_key)):
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
+async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
     try:
         send_magic_packet(DEFAULT_MAC)
         return {"message": "Wake-on-LAN packet sent successfully"}
@@ -82,7 +108,9 @@ async def wake_pc(api_key: str = Depends(verify_api_key)):
 
 
 @app.get("/wake/{wake_addr}")
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def read_wake(
+    request: Request,
     wake_addr: str,
     api_key: str = Depends(verify_api_key),
     q: Union[str, None] = None
