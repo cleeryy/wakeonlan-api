@@ -3,17 +3,23 @@ import re
 from typing import Union, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Header, status, Request
+from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body, Body
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.responses import JSONResponse
 from wakeonlan import send_magic_packet
+from .devices import DeviceRegistry
+from .utils import validate_mac_address
 
 load_dotenv()
 
 app = FastAPI()
+
+# Initialize device registry
+DEVICES_FILE = os.getenv("DEVICES_FILE", "devices.json")
+device_registry = DeviceRegistry(DEVICES_FILE)
 
 # Rate limiting configuration
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "5"))
@@ -102,6 +108,91 @@ async def health_check():
         "service": "wakeonlan-api",
         "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
     }
+
+
+@app.get("/devices", dependencies=[Depends(verify_api_key)])
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
+async def list_devices(request: Request):
+    """List all registered devices."""
+    return device_registry.list_devices()
+
+
+@app.post("/devices", dependencies=[Depends(verify_api_key)])
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
+async def add_device(
+    request: Request,
+    name: str = Body(..., embed=True),
+    mac: str = Body(..., embed=True)
+):
+    """
+    Add a new device.
+    
+    - **name**: Device name (alphanumeric, dashes, underscores)
+    - **mac**: MAC address (XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX)
+    """
+    if not validate_mac_address(mac):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": f"Invalid MAC address format: '{mac}'"}
+        )
+    
+    if device_registry.exists(name):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": f"Device '{name}' already exists"}
+        )
+    
+    success = device_registry.add(name, mac)
+    if success:
+        return {"message": f"Device '{name}' added successfully"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Failed to add device"}
+        )
+
+
+@app.delete("/devices/{name}", dependencies=[Depends(verify_api_key)])
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
+async def delete_device(request: Request, name: str):
+    """Delete a device by name."""
+    if not device_registry.exists(name):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": f"Device '{name}' not found"}
+        )
+    
+    success = device_registry.remove(name)
+    if success:
+        return {"message": f"Device '{name}' deleted successfully"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Failed to delete device"}
+        )
+
+
+@app.get("/wake/device/{name}", dependencies=[Depends(verify_api_key)])
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
+async def wake_device_by_name(request: Request, name: str):
+    """Wake a device by its registered name."""
+    mac = device_registry.get(name)
+    if not mac:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": f"Device '{name}' not found in registry"}
+        )
+    
+    try:
+        send_magic_packet(mac)
+        return {
+            "message": f"Wake-on-LAN packet sent successfully to {name} ({mac})!"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": f"Failed to send Wake-on-LAN packet to {name}: {str(e)}"}
+        )
 
 
 @app.get("/wake")
