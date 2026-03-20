@@ -20,15 +20,18 @@ from app.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def reset_limiter_before_each_test():
+    """Reset rate limiter before each test to ensure clean state."""
+    app.state.limiter.reset()
+
+
 class TestRateLimiting:
     """Tests for rate limiting on /wake endpoints."""
 
     def test_rate_limit_exceeded_returns_429(self):
         """Should return 429 when rate limit is exceeded."""
         rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
-        
-        # Reset limiter
-        app.state.limiter._storage.reset()
         
         # Make requests up to the limit (should all succeed)
         for i in range(rate_limit):
@@ -44,8 +47,6 @@ class TestRateLimiting:
         """Should return proper error message with rate limit details."""
         rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
         
-        app.state.limiter._storage.reset()
-        
         # Exceed rate limit
         for _ in range(rate_limit + 1):
             client.get("/wake", headers={"X-API-Key": "test-key"})
@@ -60,8 +61,6 @@ class TestRateLimiting:
         """Should rate limit /wake/{mac} endpoint as well."""
         rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
         
-        app.state.limiter._storage.reset()
-        
         # Exceed limit on specific MAC endpoint
         for i in range(rate_limit):
             response = client.get("/wake/AA:BB:CC:DD:EE:FF", headers={"X-API-Key": "test-key"})
@@ -73,8 +72,6 @@ class TestRateLimiting:
     def test_rate_limit_by_ip(self):
         """Should rate limit based on client IP address."""
         rate_limit = int(os.getenv("RATE_LIMIT_REQUESTS", "3"))
-        
-        app.state.limiter._storage.reset()
         
         # All requests from same client (test client) should be tracked together
         for i in range(rate_limit):
@@ -93,8 +90,6 @@ class TestRateLimiting:
         original_api_key = main_module.API_KEY
         try:
             main_module.API_KEY = "test-key,another-key"
-            
-            app.state.limiter._storage.reset()
             
             # Use first key until limit
             for i in range(rate_limit):
