@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Union, List
 
 from dotenv import load_dotenv
@@ -14,6 +15,19 @@ API_KEY = os.getenv("API_KEY", "").strip()
 
 if not DEFAULT_MAC:
     raise RuntimeError("DEFAULT_MAC environment variable is required")
+
+MAC_ADDRESS_REGEX = re.compile(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$')
+
+
+def validate_mac_address(mac: str) -> bool:
+    return bool(MAC_ADDRESS_REGEX.fullmatch(mac.strip()))
+
+
+if not validate_mac_address(DEFAULT_MAC):
+    raise RuntimeError(
+        f"Invalid DEFAULT_MAC format: '{DEFAULT_MAC}'. "
+        "Must be in format XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX"
+    )
 
 
 def get_api_keys() -> List[str]:
@@ -69,6 +83,12 @@ async def read_wake(
     api_key: str = Depends(verify_api_key),
     q: Union[str, None] = None
 ):
+    # Validate MAC address format
+    if not validate_mac_address(wake_addr):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": f"Invalid MAC address format: '{wake_addr}'. Must be XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX"}
+        )
     try:
         send_magic_packet(wake_addr)
         return {
