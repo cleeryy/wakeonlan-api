@@ -1,17 +1,19 @@
 import os
 import re
 import logging
-from typing import Union, List
+from typing import Union, List, Optional
 import asyncio
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body, Response
+from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body, Response, BackgroundTasks
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.responses import JSONResponse
 from wakeonlan import send_magic_packet
+import httpx
+from datetime import datetime
 from .devices import DeviceRegistry
 from .utils import validate_mac_address
 from .logging_config import setup_logging
@@ -53,6 +55,10 @@ BROADCAST_IP = os.getenv("BROADCAST_IP", "")
 WOL_RETRIES = int(os.getenv("WOL_RETRIES", "3"))
 WOL_RETRY_DELAY = float(os.getenv("WOL_RETRY_DELAY", "0.5"))  # seconds
 
+# Webhook configuration
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+WEBHOOK_TIMEOUT = float(os.getenv("WEBHOOK_TIMEOUT", "5.0"))
+
 import asyncio
 
 async def send_wol_with_retry(mac: str, broadcast_ip: Union[str, None] = None, endpoint: Union[str, None] = None):
@@ -87,6 +93,36 @@ async def send_wol_with_retry(mac: str, broadcast_ip: Union[str, None] = None, e
                 await asyncio.sleep(WOL_RETRY_DELAY)
             else:
                 raise last_exception
+
+
+async def send_webhook_notification(
+    mac: str,
+    endpoint: str,
+    success: bool,
+    error: Optional[str] = None
+):
+    """Send webhook notification if WEBHOOK_URL is configured."""
+    if not WEBHOOK_URL:
+        return
+    
+    payload = {
+        "event": "wol",
+        "mac": mac,
+        "endpoint": endpoint,
+        "success": success,
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+    if error:
+        payload["error"] = error
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(WEBHOOK_URL, json=payload, timeout=WEBHOOK_TIMEOUT)
+    except Exception as e:
+        logger.error("Failed to send webhook", extra={
+            "webhook_url": WEBHOOK_URL,
+            "error": str(e)
+        })
 
 # Initialize limiter with remote address as key
 limiter = Limiter(key_func=get_remote_address)
@@ -236,7 +272,11 @@ async def delete_device(request: Request, name: str):
 
 @app.get("/wake/device/{name}", dependencies=[Depends(verify_api_key)])
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
-async def wake_device_by_name(request: Request, name: str):
+async def wake_device_by_name(
+    request: Request,
+    name: str,
+    background_tasks: BackgroundTasks
+):
     """Wake a device by its registered name."""
     endpoint = f"/wake/device/{name}"
     if METRICS_ENABLED:
@@ -247,6 +287,7 @@ async def wake_device_by_name(request: Request, name: str):
         if METRICS_ENABLED:
             metrics.wol_failure_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
+        # No WoL attempt; skip webhook
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": f"Device '{name}' not found in registry"}
@@ -268,6 +309,14 @@ async def wake_device_by_name(request: Request, name: str):
         if METRICS_ENABLED:
             metrics.wol_success_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
+        # Schedule webhook notification (if enabled)
+        if WEBHOOK_URL:
+            background_tasks.add_task(
+                send_webhook_notification,
+                mac=mac,
+                endpoint=endpoint,
+                success=True
+            )
         return {
             "message": f"Wake-on-LAN packet sent successfully to {name} ({mac})!"
         }
@@ -281,15 +330,28 @@ async def wake_device_by_name(request: Request, name: str):
         if METRICS_ENABLED:
             metrics.wol_failure_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
-        raise HTTPException(
+        # Schedule webhook notification (if enabled)
+        if WEBHOOK_URL:
+            background_tasks.add_task(
+                send_webhook_notification,
+                mac=mac,
+                endpoint=endpoint,
+                success=False,
+                error=str(e)
+            )
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": f"Failed to send Wake-on-LAN packet to {name}: {str(e)}"}
+            content={"detail": {"error": f"Failed to send Wake-on-LAN packet to {name}: {str(e)}"}}
         )
 
 
 @app.get("/wake")
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
-async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
+async def wake_pc(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(verify_api_key)
+):
     endpoint = "/wake"
     if METRICS_ENABLED:
         metrics.wol_requests_total.labels(endpoint=endpoint, status="started").inc()
@@ -307,6 +369,14 @@ async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
         if METRICS_ENABLED:
             metrics.wol_success_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
+        # Schedule webhook notification (if enabled)
+        if WEBHOOK_URL:
+            background_tasks.add_task(
+                send_webhook_notification,
+                mac=DEFAULT_MAC,
+                endpoint=endpoint,
+                success=True
+            )
         return {"message": "Wake-on-LAN packet sent successfully"}
     except Exception as e:
         logger.error("WoL failure", extra={
@@ -317,9 +387,18 @@ async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
         if METRICS_ENABLED:
             metrics.wol_failure_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
-        raise HTTPException(
+        # Schedule webhook notification (if enabled)
+        if WEBHOOK_URL:
+            background_tasks.add_task(
+                send_webhook_notification,
+                mac=DEFAULT_MAC,
+                endpoint=endpoint,
+                success=False,
+                error=str(e)
+            )
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": f"Failed to send Wake-on-LAN packet: {str(e)}"}
+            content={"detail": {"error": f"Failed to send Wake-on-LAN packet: {str(e)}"}}
         )
 
 
@@ -328,6 +407,7 @@ async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
 async def wake_batch(
     request: Request,
     data: BatchWakeRequest,
+    background_tasks: BackgroundTasks,
     api_key: str = Depends(verify_api_key)
 ):
     """
@@ -369,6 +449,14 @@ async def wake_batch(
             if METRICS_ENABLED:
                 metrics.wol_success_total.labels(endpoint=endpoint).inc()
             results.append({"mac": mac, "status": "success"})
+            # Schedule webhook for success (if enabled)
+            if WEBHOOK_URL:
+                background_tasks.add_task(
+                    send_webhook_notification,
+                    mac=mac,
+                    endpoint=endpoint,
+                    success=True
+                )
         except Exception as e:
             logger.error("WoL failure (batch)", extra={
                 "mac": mac,
@@ -378,6 +466,15 @@ async def wake_batch(
             if METRICS_ENABLED:
                 metrics.wol_failure_total.labels(endpoint=endpoint).inc()
             results.append({"mac": mac, "status": "error", "error": str(e)})
+            # Schedule webhook for failure (if enabled)
+            if WEBHOOK_URL:
+                background_tasks.add_task(
+                    send_webhook_notification,
+                    mac=mac,
+                    endpoint=endpoint,
+                    success=False,
+                    error=str(e)
+                )
     
     if METRICS_ENABLED:
         metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
@@ -389,6 +486,7 @@ async def wake_batch(
 async def read_wake(
     request: Request,
     wake_addr: str,
+    background_tasks: BackgroundTasks,
     api_key: str = Depends(verify_api_key),
     q: Union[str, None] = None
 ):
@@ -401,6 +499,7 @@ async def read_wake(
         if METRICS_ENABLED:
             metrics.wol_failure_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
+        # Schedule webhook? Probably not for validation failure; no WoL attempt. Skip.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": f"Invalid MAC address format: '{wake_addr}'. Must be XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX"}
@@ -419,6 +518,14 @@ async def read_wake(
         if METRICS_ENABLED:
             metrics.wol_success_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
+        # Schedule webhook notification (if enabled)
+        if WEBHOOK_URL:
+            background_tasks.add_task(
+                send_webhook_notification,
+                mac=wake_addr,
+                endpoint=endpoint,
+                success=True
+            )
         return {
             "message": f"Wake-on-LAN packet sent successfully to {wake_addr} device!"
         }
@@ -431,11 +538,18 @@ async def read_wake(
         if METRICS_ENABLED:
             metrics.wol_failure_total.labels(endpoint=endpoint).inc()
             metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
-        raise HTTPException(
+        # Schedule webhook notification (if enabled)
+        if WEBHOOK_URL:
+            background_tasks.add_task(
+                send_webhook_notification,
+                mac=wake_addr,
+                endpoint=endpoint,
+                success=False,
+                error=str(e)
+            )
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": f"Failed to send Wake-on-LAN packet to {wake_addr} device: {str(e)}"
-            }
+            content={"detail": {"error": f"Failed to send Wake-on-LAN packet to {wake_addr} device: {str(e)}"}}
         )
 
 
