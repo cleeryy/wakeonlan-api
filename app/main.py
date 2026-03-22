@@ -1,9 +1,10 @@
 import os
 import re
+import logging
 from typing import Union, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body, Body
+from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -12,10 +13,19 @@ from starlette.responses import JSONResponse
 from wakeonlan import send_magic_packet
 from .devices import DeviceRegistry
 from .utils import validate_mac_address
+from .logging_config import setup_logging
+from .middleware import LoggingMiddleware
+
+# Configure structured logging
+setup_logging()
+logger = logging.getLogger("wol")
 
 load_dotenv()
 
 app = FastAPI()
+
+# Add logging middleware
+app.add_middleware(LoggingMiddleware)
 
 # Initialize device registry
 DEVICES_FILE = os.getenv("DEVICES_FILE", "devices.json")
@@ -210,11 +220,28 @@ async def wake_device_by_name(request: Request, name: str):
         )
     
     try:
+        logger.info("WoL attempt", extra={
+            "device_name": name,
+            "mac": mac,
+            "broadcast_ip": BROADCAST_IP or None,
+            "endpoint": f"/wake/device/{name}"
+        })
         await send_wol_with_retry(mac, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        logger.info("WoL success", extra={
+            "device_name": name,
+            "mac": mac,
+            "broadcast_ip": BROADCAST_IP or None
+        })
         return {
             "message": f"Wake-on-LAN packet sent successfully to {name} ({mac})!"
         }
     except Exception as e:
+        logger.error("WoL failure", extra={
+            "device_name": name,
+            "mac": mac,
+            "broadcast_ip": BROADCAST_IP or None,
+            "error": str(e)
+        })
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": f"Failed to send Wake-on-LAN packet to {name}: {str(e)}"}
@@ -225,9 +252,23 @@ async def wake_device_by_name(request: Request, name: str):
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
     try:
+        logger.info("WoL attempt", extra={
+            "mac": DEFAULT_MAC,
+            "broadcast_ip": BROADCAST_IP or None,
+            "endpoint": "/wake"
+        })
         await send_wol_with_retry(DEFAULT_MAC, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        logger.info("WoL success", extra={
+            "mac": DEFAULT_MAC,
+            "broadcast_ip": BROADCAST_IP or None
+        })
         return {"message": "Wake-on-LAN packet sent successfully"}
     except Exception as e:
+        logger.error("WoL failure", extra={
+            "mac": DEFAULT_MAC,
+            "broadcast_ip": BROADCAST_IP or None,
+            "error": str(e)
+        })
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": f"Failed to send Wake-on-LAN packet: {str(e)}"}
@@ -249,11 +290,25 @@ async def read_wake(
             detail={"error": f"Invalid MAC address format: '{wake_addr}'. Must be XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX"}
         )
     try:
+        logger.info("WoL attempt", extra={
+            "mac": wake_addr,
+            "broadcast_ip": BROADCAST_IP or None,
+            "endpoint": f"/wake/{wake_addr}"
+        })
         await send_wol_with_retry(wake_addr, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        logger.info("WoL success", extra={
+            "mac": wake_addr,
+            "broadcast_ip": BROADCAST_IP or None
+        })
         return {
             "message": f"Wake-on-LAN packet sent successfully to {wake_addr} device!"
         }
     except Exception as e:
+        logger.error("WoL failure", extra={
+            "mac": wake_addr,
+            "broadcast_ip": BROADCAST_IP or None,
+            "error": str(e)
+        })
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
