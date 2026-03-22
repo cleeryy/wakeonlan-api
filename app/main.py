@@ -5,7 +5,7 @@ from typing import Union, List
 import asyncio
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body
+from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body, Response
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -17,12 +17,20 @@ from .utils import validate_mac_address
 from .logging_config import setup_logging
 from .middleware import LoggingMiddleware
 from .models import BatchWakeRequest
+from . import metrics
 
 # Configure structured logging
 setup_logging()
 logger = logging.getLogger("wol")
 
 load_dotenv()
+
+# Metrics enabled flag (can be disabled via environment)
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
+
+# Conditionally import metrics module
+if METRICS_ENABLED:
+    from . import metrics
 
 app = FastAPI()
 
@@ -47,15 +55,31 @@ WOL_RETRY_DELAY = float(os.getenv("WOL_RETRY_DELAY", "0.5"))  # seconds
 
 import asyncio
 
-async def send_wol_with_retry(mac: str, broadcast_ip: Union[str, None] = None):
+async def send_wol_with_retry(mac: str, broadcast_ip: Union[str, None] = None, endpoint: Union[str, None] = None):
     """Send WoL packet with retry logic."""
     last_exception = None
     for attempt in range(WOL_RETRIES):
         try:
-            if broadcast_ip:
-                send_magic_packet(mac, ip_address=broadcast_ip)
+            if METRICS_ENABLED:
+                if endpoint:
+                    # Increment retry counter (excluding first attempt)
+                    if attempt > 0:
+                        metrics.wol_retries_total.labels(endpoint=endpoint).inc()
+                    # Track duration with histogram
+                    timer_context = metrics.wol_duration_seconds.labels(endpoint=endpoint).time()
+                else:
+                    timer_context = metrics.wol_duration_seconds.labels(endpoint="unknown").time()
+                
+                with timer_context:
+                    if broadcast_ip:
+                        send_magic_packet(mac, ip_address=broadcast_ip)
+                    else:
+                        send_magic_packet(mac)
             else:
-                send_magic_packet(mac)
+                if broadcast_ip:
+                    send_magic_packet(mac, ip_address=broadcast_ip)
+                else:
+                    send_magic_packet(mac)
             return
         except Exception as e:
             last_exception = e
@@ -214,8 +238,15 @@ async def delete_device(request: Request, name: str):
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def wake_device_by_name(request: Request, name: str):
     """Wake a device by its registered name."""
+    endpoint = f"/wake/device/{name}"
+    if METRICS_ENABLED:
+        metrics.wol_requests_total.labels(endpoint=endpoint, status="started").inc()
+    
     mac = device_registry.get(name)
     if not mac:
+        if METRICS_ENABLED:
+            metrics.wol_failure_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": f"Device '{name}' not found in registry"}
@@ -226,14 +257,17 @@ async def wake_device_by_name(request: Request, name: str):
             "device_name": name,
             "mac": mac,
             "broadcast_ip": BROADCAST_IP or None,
-            "endpoint": f"/wake/device/{name}"
+            "endpoint": endpoint
         })
-        await send_wol_with_retry(mac, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        await send_wol_with_retry(mac, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None, endpoint=endpoint)
         logger.info("WoL success", extra={
             "device_name": name,
             "mac": mac,
             "broadcast_ip": BROADCAST_IP or None
         })
+        if METRICS_ENABLED:
+            metrics.wol_success_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
         return {
             "message": f"Wake-on-LAN packet sent successfully to {name} ({mac})!"
         }
@@ -244,6 +278,9 @@ async def wake_device_by_name(request: Request, name: str):
             "broadcast_ip": BROADCAST_IP or None,
             "error": str(e)
         })
+        if METRICS_ENABLED:
+            metrics.wol_failure_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": f"Failed to send Wake-on-LAN packet to {name}: {str(e)}"}
@@ -253,17 +290,23 @@ async def wake_device_by_name(request: Request, name: str):
 @app.get("/wake")
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
+    endpoint = "/wake"
+    if METRICS_ENABLED:
+        metrics.wol_requests_total.labels(endpoint=endpoint, status="started").inc()
     try:
         logger.info("WoL attempt", extra={
             "mac": DEFAULT_MAC,
             "broadcast_ip": BROADCAST_IP or None,
-            "endpoint": "/wake"
+            "endpoint": endpoint
         })
-        await send_wol_with_retry(DEFAULT_MAC, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        await send_wol_with_retry(DEFAULT_MAC, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None, endpoint=endpoint)
         logger.info("WoL success", extra={
             "mac": DEFAULT_MAC,
             "broadcast_ip": BROADCAST_IP or None
         })
+        if METRICS_ENABLED:
+            metrics.wol_success_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
         return {"message": "Wake-on-LAN packet sent successfully"}
     except Exception as e:
         logger.error("WoL failure", extra={
@@ -271,6 +314,9 @@ async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
             "broadcast_ip": BROADCAST_IP or None,
             "error": str(e)
         })
+        if METRICS_ENABLED:
+            metrics.wol_failure_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": f"Failed to send Wake-on-LAN packet: {str(e)}"}
@@ -289,19 +335,26 @@ async def wake_batch(
     
     Body: { "mac_addresses": ["AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"] }
     """
+    endpoint = "/wake/batch"
+    if METRICS_ENABLED:
+        metrics.wol_requests_total.labels(endpoint=endpoint, status="started").inc()
+    
     mac_addresses = data.mac_addresses
     # Validate all MAC addresses
-    for mac in mac_addresses:
-        if not validate_mac_address(mac):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"error": f"Invalid MAC address format: '{mac}'"}
-            )
+    invalid_macs = [mac for mac in mac_addresses if not validate_mac_address(mac)]
+    if invalid_macs:
+        if METRICS_ENABLED:
+            metrics.wol_failure_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": f"Invalid MAC address format(s): {invalid_macs}"}
+        )
     
     results = []
     tasks = []
     for mac in mac_addresses:
-        task = send_wol_with_retry(mac, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        task = send_wol_with_retry(mac, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None, endpoint=endpoint)
         tasks.append(task)
     
     # Run all WoL attempts in parallel
@@ -313,6 +366,8 @@ async def wake_batch(
                 "broadcast_ip": BROADCAST_IP or None,
                 "batch_size": len(mac_addresses)
             })
+            if METRICS_ENABLED:
+                metrics.wol_success_total.labels(endpoint=endpoint).inc()
             results.append({"mac": mac, "status": "success"})
         except Exception as e:
             logger.error("WoL failure (batch)", extra={
@@ -320,8 +375,12 @@ async def wake_batch(
                 "broadcast_ip": BROADCAST_IP or None,
                 "error": str(e)
             })
+            if METRICS_ENABLED:
+                metrics.wol_failure_total.labels(endpoint=endpoint).inc()
             results.append({"mac": mac, "status": "error", "error": str(e)})
     
+    if METRICS_ENABLED:
+        metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
     return {"message": f"Batch wake completed for {len(mac_addresses)} devices", "results": results}
 
 
@@ -333,8 +392,15 @@ async def read_wake(
     api_key: str = Depends(verify_api_key),
     q: Union[str, None] = None
 ):
+    endpoint = f"/wake/{wake_addr}"
+    if METRICS_ENABLED:
+        metrics.wol_requests_total.labels(endpoint=endpoint, status="started").inc()
+    
     # Validate MAC address format
     if not validate_mac_address(wake_addr):
+        if METRICS_ENABLED:
+            metrics.wol_failure_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": f"Invalid MAC address format: '{wake_addr}'. Must be XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX"}
@@ -343,13 +409,16 @@ async def read_wake(
         logger.info("WoL attempt", extra={
             "mac": wake_addr,
             "broadcast_ip": BROADCAST_IP or None,
-            "endpoint": f"/wake/{wake_addr}"
+            "endpoint": endpoint
         })
-        await send_wol_with_retry(wake_addr, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        await send_wol_with_retry(wake_addr, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None, endpoint=endpoint)
         logger.info("WoL success", extra={
             "mac": wake_addr,
             "broadcast_ip": BROADCAST_IP or None
         })
+        if METRICS_ENABLED:
+            metrics.wol_success_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="success").inc()
         return {
             "message": f"Wake-on-LAN packet sent successfully to {wake_addr} device!"
         }
@@ -359,9 +428,20 @@ async def read_wake(
             "broadcast_ip": BROADCAST_IP or None,
             "error": str(e)
         })
+        if METRICS_ENABLED:
+            metrics.wol_failure_total.labels(endpoint=endpoint).inc()
+            metrics.wol_requests_total.labels(endpoint=endpoint, status="failure").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": f"Failed to send Wake-on-LAN packet to {wake_addr} device: {str(e)}"
             }
         )
+
+
+@app.get("/metrics")
+async def metrics_endpoint():
+    """Prometheus metrics endpoint."""
+    if not METRICS_ENABLED:
+        return Response(content="", status_code=status.HTTP_404_NOT_FOUND)
+    return Response(content=metrics.get_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
