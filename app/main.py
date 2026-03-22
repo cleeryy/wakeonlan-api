@@ -29,6 +29,29 @@ RATE_LIMIT_STRING = f"{RATE_LIMIT_REQUESTS}/{RATE_LIMIT_WINDOW_SECONDS}s"
 # Broadcast IP configuration (optional, defaults to wakeonlan library default)
 BROADCAST_IP = os.getenv("BROADCAST_IP", "")
 
+# WoL Retry configuration
+WOL_RETRIES = int(os.getenv("WOL_RETRIES", "3"))
+WOL_RETRY_DELAY = float(os.getenv("WOL_RETRY_DELAY", "0.5"))  # seconds
+
+import asyncio
+
+async def send_wol_with_retry(mac: str, broadcast_ip: Union[str, None] = None):
+    """Send WoL packet with retry logic."""
+    last_exception = None
+    for attempt in range(WOL_RETRIES):
+        try:
+            if broadcast_ip:
+                send_magic_packet(mac, ip_address=broadcast_ip)
+            else:
+                send_magic_packet(mac)
+            return
+        except Exception as e:
+            last_exception = e
+            if attempt < WOL_RETRIES - 1:
+                await asyncio.sleep(WOL_RETRY_DELAY)
+            else:
+                raise last_exception
+
 # Initialize limiter with remote address as key
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -187,10 +210,7 @@ async def wake_device_by_name(request: Request, name: str):
         )
     
     try:
-        if BROADCAST_IP:
-            send_magic_packet(mac, ip_address=BROADCAST_IP)
-        else:
-            send_magic_packet(mac)
+        await send_wol_with_retry(mac, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
         return {
             "message": f"Wake-on-LAN packet sent successfully to {name} ({mac})!"
         }
@@ -205,10 +225,7 @@ async def wake_device_by_name(request: Request, name: str):
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
     try:
-        if BROADCAST_IP:
-            send_magic_packet(DEFAULT_MAC, ip_address=BROADCAST_IP)
-        else:
-            send_magic_packet(DEFAULT_MAC)
+        await send_wol_with_retry(DEFAULT_MAC, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
         return {"message": "Wake-on-LAN packet sent successfully"}
     except Exception as e:
         raise HTTPException(
@@ -232,10 +249,7 @@ async def read_wake(
             detail={"error": f"Invalid MAC address format: '{wake_addr}'. Must be XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX"}
         )
     try:
-        if BROADCAST_IP:
-            send_magic_packet(wake_addr, ip_address=BROADCAST_IP)
-        else:
-            send_magic_packet(wake_addr)
+        await send_wol_with_retry(wake_addr, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
         return {
             "message": f"Wake-on-LAN packet sent successfully to {wake_addr} device!"
         }
