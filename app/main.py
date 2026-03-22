@@ -48,6 +48,9 @@ RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "5"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_STRING = f"{RATE_LIMIT_REQUESTS}/{RATE_LIMIT_WINDOW_SECONDS}s"
 
+# API version
+API_VERSION = os.getenv("API_VERSION", "1.0")
+
 # Broadcast IP configuration (optional, defaults to wakeonlan library default)
 BROADCAST_IP = os.getenv("BROADCAST_IP", "")
 
@@ -206,6 +209,12 @@ async def health_check():
         "service": "wakeonlan-api",
         "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
     }
+
+
+@app.get("/version")
+async def version():
+    """API version endpoint."""
+    return {"name": "wakeonlan-api", "version": API_VERSION}
 
 
 @app.get("/devices", dependencies=[Depends(verify_api_key)])
