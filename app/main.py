@@ -2,6 +2,7 @@ import os
 import re
 import logging
 from typing import Union, List
+import asyncio
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Header, status, Request, Body
@@ -15,6 +16,7 @@ from .devices import DeviceRegistry
 from .utils import validate_mac_address
 from .logging_config import setup_logging
 from .middleware import LoggingMiddleware
+from .models import BatchWakeRequest
 
 # Configure structured logging
 setup_logging()
@@ -273,6 +275,54 @@ async def wake_pc(request: Request, api_key: str = Depends(verify_api_key)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": f"Failed to send Wake-on-LAN packet: {str(e)}"}
         )
+
+
+@app.post("/wake/batch")
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
+async def wake_batch(
+    request: Request,
+    data: BatchWakeRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Wake multiple devices at once.
+    
+    Body: { "mac_addresses": ["AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"] }
+    """
+    mac_addresses = data.mac_addresses
+    # Validate all MAC addresses
+    for mac in mac_addresses:
+        if not validate_mac_address(mac):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": f"Invalid MAC address format: '{mac}'"}
+            )
+    
+    results = []
+    tasks = []
+    for mac in mac_addresses:
+        task = send_wol_with_retry(mac, broadcast_ip=BROADCAST_IP if BROADCAST_IP else None)
+        tasks.append(task)
+    
+    # Run all WoL attempts in parallel
+    for idx, mac in enumerate(mac_addresses):
+        try:
+            await tasks[idx]
+            logger.info("WoL success (batch)", extra={
+                "mac": mac,
+                "broadcast_ip": BROADCAST_IP or None,
+                "batch_size": len(mac_addresses)
+            })
+            results.append({"mac": mac, "status": "success"})
+        except Exception as e:
+            logger.error("WoL failure (batch)", extra={
+                "mac": mac,
+                "broadcast_ip": BROADCAST_IP or None,
+                "error": str(e)
+            })
+            results.append({"mac": mac, "status": "error", "error": str(e)})
+    
+    return {"message": f"Batch wake completed for {len(mac_addresses)} devices", "results": results}
 
 
 @app.get("/wake/{wake_addr}")
