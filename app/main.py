@@ -354,6 +354,19 @@ async def wake_device_by_name(
         )
 
 
+@app.get("/status/{name}", dependencies=[Depends(verify_api_key)])
+@limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
+async def device_status(request: Request, name: str):
+    """Get device registration status."""
+    mac = device_registry.get(name)
+    if not mac:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": f"Device '{name}' not found in registry"}
+        )
+    return {"name": name, "mac": mac, "status": "registered"}
+
+
 @app.get("/wake")
 @limiter.limit(f"{RATE_LIMIT_REQUESTS}/minute")
 async def wake_pc(
